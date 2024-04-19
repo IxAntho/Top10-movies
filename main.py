@@ -7,28 +7,45 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 import requests
+import os
 
-'''
-Red underlines? Install the required packages first: 
-Open the Terminal in PyCharm (bottom left). 
-
-On Windows type:
-python -m pip install -r requirements.txt
-
-On MacOS type:
-pip3 install -r requirements.txt
-
-This will install the packages from requirements.txt for this project.
-'''
+DB_PATH = os.path.join(os.path.dirname(__file__), "top-movies.db")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
 Bootstrap5(app)
 
+
 # CREATE DB
+class Base(DeclarativeBase):
+    pass
+
+
+# first config specifies the path where our db is going to be created
+app.config[
+    'SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 
 # CREATE TABLE
+class Movie(db.Model):
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(250), unique=True, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(350), nullable=False)
+    rating: Mapped[float] = mapped_column(Float, nullable=False)
+    ranking: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    review: Mapped[str] = mapped_column(String(250), nullable=False)
+    img_url: Mapped[str] = mapped_column(String(250), nullable=False)
+
+
+with app.app_context():
+    if not os.path.exists(DB_PATH):
+        db.create_all()
+        print("Database created.")
+    else:
+        print("Database already exists.")
 
 
 @app.route("/")
