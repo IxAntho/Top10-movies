@@ -9,6 +9,13 @@ from wtforms import StringField, FloatField, SubmitField
 from wtforms.validators import DataRequired
 import requests
 import os
+from dotenv import load_dotenv
+import json
+
+# Env variables
+load_dotenv(".env")
+API_KEY: str = os.getenv("API_KEY")
+API_TOKEN: str = os.getenv("API_TOKEN")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "top-movies.db")
 
@@ -54,6 +61,11 @@ with app.app_context():
 class EditForm(FlaskForm):
     rating = FloatField('Your rating out of 10, e.g. 7.5', validators=[DataRequired()])
     review = StringField('Your review', validators=[DataRequired()])
+    submit = SubmitField('Submit')
+
+
+class AddForm(FlaskForm):
+    title = StringField('Movie Title', validators=[DataRequired()])
     submit = SubmitField('Submit')
 
 
@@ -125,7 +137,84 @@ def delete(movie_id):
     movie_to_delete = db.get_or_404(Movie, movie_id)
     db.session.delete(movie_to_delete)
     db.session.commit()
-    return redirect(url_for('home'))
+    return redirect(url_for("home"))
+
+
+@app.route("/find", methods=["GET", "POST"])
+def find():
+    add_form = AddForm()
+    if add_form.validate_on_submit():
+        query = add_form.title.data
+        url = f"https://api.themoviedb.org/3/search/movie?query={query}&include_adult=true&language=en-US&page=1"
+
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {API_TOKEN}"
+        }
+
+        response = requests.get(url, headers=headers)
+        movies_data = response.json()["results"]
+
+        return render_template("select.html", movies=movies_data)
+    return render_template("add.html", form=add_form)
+
+
+def define_ranking():
+    with app.app_context():
+        result = db.session.execute(db.select(Movie).order_by(Movie.rating.desc()))
+        all_movies = result.scalars().all()
+        # Assign unique rankings based on the ordered list
+        for i, movie in enumerate(all_movies, start=1):
+            movie.ranking = i
+        # Commit the changes to the database
+        db.session.commit()
+
+
+@app.route("/add")
+def add():
+    movie_data = request.args.get("movie")
+
+    if movie_data:
+        # Convert the movie string to a dictionary
+        movie_data = json.loads(movie_data)
+
+        # Extract the required data from the movie dictionary
+        title = movie_data.get("original_title")
+        year = int(movie_data.get("release_date", "").split("-")[0]) or None
+        description = movie_data.get("overview")
+        rating = 0
+        ranking = 0  # Set a fixed ranking for now
+        review = "No review yet."  # Set a default review
+        img_url = f"https://image.tmdb.org/t/p/w500{movie_data.get('poster_path')}"
+
+        # Create a new Movie object
+        new_movie = Movie(
+            title=title,
+            year=year,
+            description=description,
+            rating=rating,
+            ranking=ranking,
+            review=review,
+            img_url=img_url
+        )
+
+        # Add the new movie to the database
+        db.session.add(new_movie)
+
+        try:
+            db.session.commit()
+            # Get the ID of the newly added movie
+            new_movie_id = new_movie.id
+            # Redirect to the edit function with the new movie ID
+            define_ranking()
+            return redirect(url_for("edit", movie_id=new_movie_id))
+        except IntegrityError as e:
+            print(f"Error: {str(e)}")
+            db.session.rollback()
+            return redirect(url_for("home"))
+        except json.JSONDecodeError as e:
+            print(f"Error: {str(e)}")
+            return redirect(url_for("home"))
 
 
 if __name__ == '__main__':
